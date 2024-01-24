@@ -14,11 +14,28 @@ function sendMessageToContent(message) {
   });
 }
 
+let lib = {};
+// Expose a function to get the stored data
+chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
+  if (request.method === "getDataFromContent") {
+    sendResponse(lib);
+  }
+});
+
+let seen = new Set();
+
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   if (message.type == "PREDICT") {
     let { type, reviewText, reviewId } = message;
-    console.log(reviewText, reviewId, "service-worker");
     let prediction = await imageClassifier.useModel(reviewText);
+
+    if (seen.has(reviewId)) return;
+    seen.add(reviewId);
+    if (prediction in lib) {
+      lib[prediction] += 1;
+    } else {
+      lib[prediction] = 1;
+    }
     sendMessageToContent({ type: "PREDICTION", prediction, reviewId });
   }
 });
@@ -43,15 +60,15 @@ class ImageClassifier {
   }
   async predict(reviewText) {
     const PATTERNS = [
-      "Forced Action",
-      "Misdirection",
-      "Not Dark Pattern",
-      "Obstruction",
-      "Scarcity",
-      "Sneaking",
-      "Social Proof",
-      "Urgency",
-    ];
+      'Forced Action',
+       'Misdirection',
+       'Not Dark Pattern',
+       'Obstruction',
+       'Scarcity',
+       'Sneaking',
+       'Social Proof',
+       'Urgency'
+       ]
 
     const wordIndex = await fetch("/MODEL/word_index.json").then((res) =>
       res.json()
@@ -61,21 +78,23 @@ class ImageClassifier {
       .replace('!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n', "")
       .split(/\s+/);
     const inputSequence = inputWords.map((word) => wordIndex[word] || 0);
-    const maxSequenceLength = 300;
+    const maxSequenceLength = 147;
     const paddedSequence = padSequence(inputSequence, maxSequenceLength);
 
     function padSequence(sequence, length) {
       if (sequence.length >= length) {
+
         return sequence.slice(0, length);
       } else {
         const padding = new Array(length - sequence.length).fill(0);
         return sequence.concat(padding);
       }
     }
-
     const resultArray = [...paddedSequence];
     let INPUT = tf.tensor([resultArray]);
     const prediction = this.model.predict(INPUT);
+    console.log(INPUT);
+    prediction.print();
     let result = prediction.argMax(1).dataSync()[0];
     return PATTERNS[result];
   }
